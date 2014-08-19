@@ -151,10 +151,9 @@ using System.IO;
 
         public void SendPacket(string packet)
         {
-            if (!_stopping)
+            if (!_stopping && (_nss != null))
             {
-                _nss.ProcessQueue();
-                _nss._packetsToSend.Enqueue(packet);
+                _nss.SendPacket(packet);
             }
         }
 
@@ -189,7 +188,7 @@ using System.IO;
                     _heartbeatTimer.Dispose();
                 }
 
-                _nss._packetsToSend.Clear();
+                //_nss._packetsToSend.Clear();
 
 
 
@@ -272,7 +271,7 @@ using System.IO;
             public delegate void PacketSentEventHandler(string data);
             public event PacketSentEventHandler PacketSent;
 
-            public volatile EventWaitHandle _ewh;
+            public volatile EventWaitHandle _waitForPacketToSend;
 
             private EventWaitHandle _requestStopWaitHandle;
 
@@ -283,69 +282,60 @@ using System.IO;
                 _packetsToSend = new Queue<string>();
                 _requestStop = false;
 
-                _ewh = new EventWaitHandle(true, EventResetMode.ManualReset);
+                _waitForPacketToSend = new EventWaitHandle(true, EventResetMode.ManualReset);
 
                 _requestStopWaitHandle = new EventWaitHandle(true, EventResetMode.ManualReset);
             }
 
-            public void ProcessQueue()
+            public void SendPacket(string packet)
             {
-                _ewh.Set();
+                _packetsToSend.Enqueue(packet);
+                _waitForPacketToSend.Set();
             }
 
             public void DoWork()
             {
                 while (!_requestStop)
                 {
-                    if (_packetsToSend.Count > 0)
+                    while ((_packetsToSend.Count > 0) && (!_requestStop))
                     {
-                        while (_packetsToSend.Count > 0)
+
+                        string buff = "";
+                        try
+                        {
+                            buff = _packetsToSend.Dequeue();
+                            Debug.Print("attempting to send: " + buff);
+                        }
+                        catch (System.InvalidOperationException ioe)
                         {
 
-                            string buff = "";
-                            try
-                            {
-                                buff = _packetsToSend.Dequeue();
-                                Debug.Print("attempting to send: " + buff);
-                            }
-                            catch (System.InvalidOperationException ioe)
-                            {
+                            //do nothing, nothing in the buffer
+                        }
 
-                                //do nothing, nothing in the buffer
-                            }
-
-                            try
+                        try
+                        {
+                            if (buff != "")
                             {
-                                if (buff != "")
-                                {
-                                    _ns.Write(Encoding.ASCII.GetBytes(buff), 0, buff.Length);
-                                    _ns.WriteByte((byte)_endOfPacketChar);
-                                    _ns.Flush();
-                                    PacketSent(buff);
-                                }
+                                _ns.Write(Encoding.ASCII.GetBytes(buff), 0, buff.Length);
+                                _ns.WriteByte((byte)_endOfPacketChar);
+                                _ns.Flush();
+                                PacketSent(buff);
                             }
-                            catch (Exception e)
-                            {
-                                //Something went wrong.  Just assume to reset the server.
-                                ComFailure();
-                                Debug.Print(e.Message);
-
-                            }
-
-                            //Done writing the packet, now write the end of packet character
+                        }
+                        catch (Exception e)
+                        {
+                            //Something went wrong.  Just assume to reset the server.
+                            ComFailure();
+                            Debug.Print(e.Message);
 
                         }
+
+                        //Done writing the packet, now write the end of packet character
+
                     }
-                    else
-                    {
-                        _ewh.Reset();
-                    }
 
-                    //Done writing packets, wait
-                    //Thread.Sleep(1);
-
-
-                    _ewh.WaitOne();
+                    _waitForPacketToSend.Reset();
+                    _waitForPacketToSend.WaitOne();
 
                 }
 
@@ -359,11 +349,12 @@ using System.IO;
             {
                 if (!_requestStop)
                 {
-                    _requestStop = true;
+                    _requestStop = true;    //Only want to RequstStop() once
 
                     _packetsToSend.Clear();
+                    _waitForPacketToSend.Set();
 
-                    ProcessQueue();
+                    //ProcessQueue();
                     //_requestStopWaitHandle.Reset();
                     _requestStopWaitHandle.WaitOne();
                     Debug.Print("done waiting");
