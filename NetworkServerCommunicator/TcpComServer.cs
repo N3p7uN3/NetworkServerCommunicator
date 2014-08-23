@@ -25,7 +25,7 @@ using System.IO;
         private int _prevPort;
 
         const int _heartbeatInterval = 1000;
-        const int _sendTimeoutInterval = 25;   //known to work at 250, was previously 250
+        const int _sendTimeoutInterval = 25;
         const int _endOfPacketChar = (int)'\n';
 
         public delegate void PacketReadyEventHandler(string packet);
@@ -155,6 +155,7 @@ using System.IO;
         private void _nss_PacketSent(string data)
         {
             ConnectionEvent(ConnectionEventType.packetSent, data);
+            Debug.Print("Packet sent: " + data);
         }
 
 
@@ -185,7 +186,6 @@ using System.IO;
 
         private void Restart(string reason)
         {
-            Debug.Print("got to Restart");
             Stop(reason);
 
             //BeginSocketAccepting();
@@ -220,24 +220,13 @@ using System.IO;
                     _nss.RequestStop();
 
                 if (_ns != null)
-                {
-
                     _ns.Close();
-
-                    //_ns.Dispose();
-                }
 
                 try
                 {
-                    //_s.Shutdown(SocketShutdown.Both);
                     _s.Disconnect(false);
                     _s.Close();
-
                     _listener.Stop();
-
-
-
-
                 }
                 catch (Exception)
                 {
@@ -260,22 +249,9 @@ using System.IO;
 
             //need to determine if we need to disconnect
             if (packet == "disconnecting")
-            {
-                //Debug.Print("Client is disconnecting, will restart...");
-
-                //_clientDisconnect = new ClientIsDisconnecting(_ns, _endOfPacketChar);
-                //_clientDisconnect.Disconnected += new ClientIsDisconnecting.FinishedDisconnectMessage(_clientDisconnect_Disconnected);
-
-                //new Thread(_clientDisconnect.DoWork).Start();
-                Debug.Print("Client has disconnected.");
-
                 Restart("client has disconnected");
-
-            }
             else
-            {
                 PacketReady(packet);
-            }
         }
 
         private class NetworkStreamSender
@@ -324,11 +300,10 @@ using System.IO;
                         try
                         {
                             buff = _packetsToSend.Dequeue();
-                            Debug.Print("attempting to send: " + buff);
+                            //Debug.Print("attempting to send: " + buff);
                         }
                         catch (System.InvalidOperationException ioe)
                         {
-
                             //do nothing, nothing in the buffer
                         }
 
@@ -378,7 +353,7 @@ using System.IO;
                     //ProcessQueue();
                     //_requestStopWaitHandle.Reset();
                     _requestStopWaitHandle.WaitOne();
-                    Debug.Print("done waiting");
+                    Debug.Print("NSS RequestStop() completed.");
 
                     //_requestStop = false;
                 }
@@ -485,7 +460,7 @@ using System.IO;
                     _shouldStop = true;
                     //_requestStopWaitHandle.Reset();
                     _requestStopWaitHandle.WaitOne();
-
+                    Debug.Print("NSR RequestStop() completed.");
                     //_shouldStop = false;
                 }
 
