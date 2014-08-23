@@ -21,6 +21,7 @@ using System.IO;
         System.Timers.Timer _heartbeatTimer;
         byte[] _keepAlive;
         private bool _stopping;
+        private bool _restartingFromSocketException;
         private int _prevPort;
 
         const int _heartbeatInterval = 1000;
@@ -55,6 +56,7 @@ using System.IO;
             _keepAlive[0] = 0;
 
             _stopping = false;
+            _restartingFromSocketException = false;
         }
 
         public void Start(int port)
@@ -65,11 +67,29 @@ using System.IO;
 
             Debug.Print("attempting to start");
 
-            _listener.Start();
+            try
+            {
+                _listener.Start();
+
+                _stopping = false;
+                BeginSocketAccepting();
+            }
+            catch (SocketException se)
+            {
+                if (!_restartingFromSocketException)
+                {
+                    _restartingFromSocketException = true;
+                    Restart(se.ToString());
+                }
+                else
+                {
+                    Stop(se.ToString());
+                }
+                
+            }
 
 
-            _stopping = false;
-            BeginSocketAccepting();
+            
         }
 
         private void BeginSocketAccepting()
@@ -335,7 +355,8 @@ using System.IO;
                     }
 
                     _waitForPacketToSend.Reset();
-                    _waitForPacketToSend.WaitOne();
+                    if (!_requestStop)
+                        _waitForPacketToSend.WaitOne();
 
                 }
 
@@ -350,7 +371,7 @@ using System.IO;
                 if (!_requestStop)
                 {
                     _requestStop = true;    //Only want to RequstStop() once
-
+                    
                     _packetsToSend.Clear();
                     _waitForPacketToSend.Set();
 
