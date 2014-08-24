@@ -46,8 +46,8 @@ using System.IO;
 
         public enum ConnectionEventType
         {
-            packetSent,
-            packetReceived
+            PacketSent,
+            PacketReceived
         };
 
         public TcpComServer()
@@ -62,7 +62,15 @@ using System.IO;
         public void Start(int port)
         {
             _prevPort = port;
-            IPAddress addr = IPAddress.Parse(GetLocalIP());
+
+            string localIp = GetLocalIP();
+            if (localIp == "?")
+            {
+                ServerConnectionStateChange(ConnectionState.Disconnected, "Could not get local machine's IP.");
+                return;
+            }
+
+            IPAddress addr = IPAddress.Parse(localIp);
             _listener = new TcpListener(addr, port);
 
             Debug.Print("attempting to start");
@@ -154,7 +162,7 @@ using System.IO;
 
         private void _nss_PacketSent(string data)
         {
-            ConnectionEvent(ConnectionEventType.packetSent, data);
+            ConnectionEvent(ConnectionEventType.PacketSent, data);
             Debug.Print("Packet sent: " + data);
         }
 
@@ -173,9 +181,13 @@ using System.IO;
         public void SendPacket(string packet)
         {
             if (!_stopping && (_nss != null))
-            {
                 _nss.SendPacket(packet);
-            }
+        }
+
+        public void SendPackets(List<string> packets)
+        {
+            if (!_stopping && (_nss != null))
+                _nss.SendPackets(packets);
         }
 
         private void _timeout_Elapsed(object sender, ElapsedEventArgs e)
@@ -289,12 +301,23 @@ using System.IO;
                 _waitForPacketToSend.Set();
             }
 
+            public void SendPackets(List<string> packets)
+            {
+                for (int i = 0; i < packets.Count; ++i)
+                {
+                    _packetsToSend.Enqueue(packets[i]);
+                }
+
+                _waitForPacketToSend.Set();
+            }
+
             public void DoWork()
             {
                 while (!_requestStop)
                 {
                     while ((_packetsToSend.Count > 0) && (!_requestStop))
                     {
+                        
 
                         string buff = "";
                         try
@@ -466,18 +489,6 @@ using System.IO;
 
 
             }
-        }
-
-        public void Finish()
-        {
-            _s.Close();
-            _listener.Stop();
-            _nsr.RequestStop();
-            _nss.RequestStop();
-            _ns.Close();
-            _ns.Dispose();
-            _heartbeatTimer.Enabled = false;
-            _heartbeatTimer.Dispose();
         }
 
         private string GetLocalIP()
