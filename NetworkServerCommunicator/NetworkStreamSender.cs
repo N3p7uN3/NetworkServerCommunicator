@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.IO;
+using System.Diagnostics;
 
 namespace NetworkServerCommunicator
 {
@@ -26,6 +27,7 @@ namespace NetworkServerCommunicator
 		EventWaitHandle mWaitForThreadToCompleteWaitHandle;
 		//====================THREAD UNSAFE OBJECTS====================
 		NetworkStream mNetStream;
+		object mNetStreamLock;
 		int mEndOfPacketChar;
 		Queue<string> mSendPacketQueue;
 		Encoding mPacketEncoding;
@@ -42,6 +44,7 @@ namespace NetworkServerCommunicator
 			Encoding packetEncoding)
 		{
 			mNetStream = netStream;
+			mNetStreamLock = new object();
 			mEndOfPacketChar = endOfPacketChar;
 			mSendPacketQueue = new Queue<string>();
 			mPacketEncoding = packetEncoding;
@@ -158,12 +161,14 @@ namespace NetworkServerCommunicator
 			//Signal received, reset it for next time.
 			mPacketReadyToBeSentWaitHandle.Reset();
 
+			Debug.Print("got past the wait");
+
 			Monitor.Enter(mSendPacketQueue);
 
 			if (mSendPacketQueue.Count > 0)
 			{
 				//Packets are queued to be sent, let's get a lock on the network stream and send them.
-				Monitor.Enter(mNetStream);
+				Monitor.Enter(mNetStreamLock);
 				
 				while (mSendPacketQueue.Count > 0)
 				{
@@ -174,7 +179,7 @@ namespace NetworkServerCommunicator
 					}
 					catch (Exception)
 					{
-						Monitor.Exit(mNetStream);
+						Monitor.Exit(mNetStreamLock);
 						Monitor.Exit(mSendPacketQueue);
 						throw new System.Net.Sockets.SocketException();
 					}
@@ -185,7 +190,7 @@ namespace NetworkServerCommunicator
 				//Signal that the packets have been sent.
 				mPacketSentWaitHandle.Set();
 
-				Monitor.Exit(mNetStream);
+				Monitor.Exit(mNetStreamLock);
 			}
 
 			Monitor.Exit(mSendPacketQueue);

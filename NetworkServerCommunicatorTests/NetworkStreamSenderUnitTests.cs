@@ -14,8 +14,11 @@ namespace NetworkServerCommunicatorTests
 
 	public class TestNetworkStreamSender : NetworkStreamSender
 	{
+		public const int ArtificialDelayms = 100;
+		
 		private List<string> mMockSendPackets;
 		private int mTickCountAtBeginningofEndOfThread;
+		private bool mArtificialDelay = false;
 
 		public TestNetworkStreamSender(
 			NetworkStream netStream,
@@ -29,10 +32,21 @@ namespace NetworkServerCommunicatorTests
 			mMockSendPackets = new List<string>();
 		}
 
+		public void EnableArtificialDelays()
+		{
+			mArtificialDelay = true;
+		}
+
 		protected override void BeforeThreadSignalsComplete()
 		{
+			if (mArtificialDelay)
+				Thread.Sleep(ArtificialDelayms);
+		}
 
-			Thread.Sleep(2000);
+		protected override void AfterSendingPackets()
+		{
+			if (mArtificialDelay)
+				Thread.Sleep(ArtificialDelayms);
 		}
 
 		protected override void SendPacket(string packet)
@@ -95,18 +109,40 @@ namespace NetworkServerCommunicatorTests
 		}
 		
 		[TestMethod]
-		public void TestSendsPackets()
+		public void TestSendsPacketsWithoutWaiting()
 		{
 			Instantiate();
+			mNSS.EnableArtificialDelays();
 
 			mNSS.EnqueuePacket("packet1", false);
 			mNSS.EnqueuePacket("packet2", false);
+
+			Thread.Sleep(TestNetworkStreamSender.ArtificialDelayms + 10);
 
 			Assert.AreEqual(2, mNSS.GetTotalPacketsSent());
 			Assert.IsTrue(mNSS.IsPacketSent("packet1"));
 			Assert.IsTrue(mNSS.IsPacketSent("packet2"));
 
+			mNSS.Stop();
 
+		}
+
+		[TestMethod]
+		public void TestWaitingToSendPacket()
+		{
+			Instantiate();
+			mNSS.EnableArtificialDelays();
+
+			int start = Environment.TickCount;
+			mNSS.EnqueuePacket("packet1", true);
+
+			int diff = Environment.TickCount - start;
+
+			Assert.IsTrue(diff >= (TestNetworkStreamSender.ArtificialDelayms - 20));
+			Assert.AreEqual(1, mNSS.GetTotalPacketsSent());
+			Assert.IsTrue(mNSS.IsPacketSent("packet1"));
+
+			mNSS.Stop();
 
 		}
 
@@ -114,13 +150,15 @@ namespace NetworkServerCommunicatorTests
 		public void TestWaitForStop()
 		{
 			Instantiate();
+			mNSS.EnableArtificialDelays();
+
 			int tickCountBeforeStopping = Environment.TickCount;
 
 			mNSS.Stop();
 
 			int diff = Environment.TickCount - tickCountBeforeStopping;
 
-			Assert.IsTrue(diff >= 1800);
+			Assert.IsTrue(diff >= (TestNetworkStreamSender.ArtificialDelayms - 20));
 		}
 	}
 }
