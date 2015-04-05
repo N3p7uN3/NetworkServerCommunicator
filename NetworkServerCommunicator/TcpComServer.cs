@@ -10,499 +10,498 @@ using System.Collections;
 using System.Timers;
 using System.IO;
 
-    public class TcpComServer
-    {
-        TcpListener _listener;
-        volatile Socket _s;
-        volatile AsyncCallback _acceptSocket;
-        NetworkStreamReader _nsr;
-        NetworkStreamSender _nss;
-        volatile NetworkStream _ns;
-        System.Timers.Timer _heartbeatTimer;
-        byte[] _keepAlive;
-        private bool _stopping;
-        private bool _restartingFromSocketException;
-        private int _prevPort;
-
-        const int _heartbeatInterval = 1000;
-        const int _sendTimeoutInterval = 25;
-        const int _endOfPacketChar = (int)'\n';
-
-        public delegate void PacketReadyEventHandler(string packet);
-        public event PacketReadyEventHandler PacketReady;
-
-        public delegate void ConnectionStateChangeEventHander(ConnectionState connectionState, string description);
-        public event ConnectionStateChangeEventHander ServerConnectionStateChange;
-
-        public delegate void ConnectionEventHandler(ConnectionEventType connectionEvent, string data);
-        public event ConnectionEventHandler ConnectionEvent;
-
-        public enum ConnectionState
-        {
-            Disconnected,
-            Listening,
-            Connected
-        };
-
-        public enum ConnectionEventType
-        {
-            PacketSent,
-            PacketReceived
-        };
-
-        public TcpComServer()
-        {
-            _keepAlive = new byte[1];
-            _keepAlive[0] = 0;
-
-            _stopping = false;
-            _restartingFromSocketException = false;
-        }
-
-        public void Start(int port)
-        {
-            _prevPort = port;
-
-            string localIp = GetLocalIP();
-            if (localIp == "?")
-            {
-                ServerConnectionStateChange(ConnectionState.Disconnected, "Could not get local machine's IP.");
-                return;
-            }
-
-            IPAddress addr = IPAddress.Parse(localIp);
-            _listener = new TcpListener(addr, port);
-
-            Debug.Print("attempting to start");
-
-            try
-            {
-                _listener.Start();
-
-                _stopping = false;
-                BeginSocketAccepting();
-            }
-            catch (SocketException se)
-            {
-                if (!_restartingFromSocketException)
-                {
-                    _restartingFromSocketException = true;
-                    Restart(se.ToString());
-                }
-                else
-                {
-                    Stop(se.ToString());
-                }
-                
-            }
-
-
-            
-        }
-
-        private void BeginSocketAccepting()
-        {
-            _acceptSocket = new AsyncCallback(AcceptSocketCallback);
-
-            _listener.BeginAcceptSocket(_acceptSocket, _listener);
-
-            Debug.Print("started server");
-            ServerConnectionStateChange(ConnectionState.Listening, "Started listening");
-
-        }
-
-        private void AcceptSocketCallback(IAsyncResult ar)
-        {
-            //if (_s != null)
-            //{
-            //    if (_s.Connected)
-            //    {
-            //        //We need to get rid of the other socket before accepting this one.
-            //        Restart("new incomming connection.");
-            //    }
-            //}
+namespace NetworkServerCommunicator
+{
+
+	public class TcpComServer
+	{
+		TcpListener _listener;
+		volatile Socket _s;
+		volatile AsyncCallback _acceptSocket;
+		NetworkStreamReader _nsr;
+		NetworkStreamSender _nss;
+		volatile NetworkStream _ns;
+		System.Timers.Timer _heartbeatTimer;
+		byte[] _keepAlive;
+		private bool _stopping;
+		private bool _restartingFromSocketException;
+		private int _prevPort;
+
+		const int _heartbeatInterval = 1000;
+		const int _sendTimeoutInterval = 25;
+		const int _endOfPacketChar = (int)'\n';
+
+		public delegate void PacketReadyEventHandler(string packet);
+		public event PacketReadyEventHandler PacketReady;
+
+		public delegate void ConnectionStateChangeEventHander(ConnectionState connectionState, string description);
+		public event ConnectionStateChangeEventHander ServerConnectionStateChange;
+
+		public delegate void ConnectionEventHandler(ConnectionEventType connectionEvent, string data);
+		public event ConnectionEventHandler ConnectionEvent;
+
+
+
+		public enum ConnectionEventType
+		{
+			PacketSent,
+			PacketReceived
+		};
+
+		public TcpComServer()
+		{
+			_keepAlive = new byte[1];
+			_keepAlive[0] = 0;
+
+			_stopping = false;
+			_restartingFromSocketException = false;
+		}
 
-            //Accept the connection and store a pointer to the connected socket in _s
-            TcpListener myListener = (TcpListener)ar.AsyncState;
+		public void Start(int port)
+		{
+			_prevPort = port;
 
-            _s = myListener.EndAcceptSocket(ar);
-            //myListener.Stop();
-            _s.SendTimeout = _sendTimeoutInterval;  //testing to disable, result is bad, make this line remain UNcommented, works at 250
+			string localIp = GetLocalIP();
+			if (localIp == "?")
+			{
+				ServerConnectionStateChange(ConnectionState.Disconnected, "Could not get local machine's IP.");
+				return;
+			}
 
-            _ns = new NetworkStream(_s);
+			IPAddress addr = IPAddress.Parse(localIp);
+			_listener = new TcpListener(addr, port);
 
-            Debug.Print(_s.RemoteEndPoint.AddressFamily.ToString() + " has connected");
+			Debug.Print("attempting to start");
 
-            //Start listening for data from the socket.
-            _nsr = new NetworkStreamReader(_ns, _endOfPacketChar);
-            _nsr.PacketReady += new NetworkStreamReader.PacketReadyEventHandler(_nsr_PacketReady);
-            _nsr.NeedToRestart += new NetworkStreamReader.NeedToRestartEventHandler(_nsr_NeedToRestart);
-            new Thread(_nsr.DoWork).Start();
+			try
+			{
+				_listener.Start();
 
-            //And start the thread for sending packets
-            _nss = new NetworkStreamSender(_ns, _endOfPacketChar);
-            _nss.ComFailure += new NetworkStreamSender.ComFailureEventHandler(_nss_ComFailure);
-            _nss.PacketSent += new NetworkStreamSender.PacketSentEventHandler(_nss_PacketSent);
-            new Thread(_nss.DoWork).Start();
+				_stopping = false;
+				BeginSocketAccepting();
+			}
+			catch (SocketException se)
+			{
+				if (!_restartingFromSocketException)
+				{
+					_restartingFromSocketException = true;
+					Restart(se.ToString());
+				}
+				else
+				{
+					Stop(se.ToString());
+				}
+
+			}
+
 
-            //Start the time out packet.  If the socket was not able to send this packet, the client has disconnected.
-            _heartbeatTimer = new System.Timers.Timer(_heartbeatInterval);
-            _heartbeatTimer.Elapsed += new ElapsedEventHandler(_timeout_Elapsed);
-            _heartbeatTimer.Start();
+
+		}
+
+		private void BeginSocketAccepting()
+		{
+			_acceptSocket = new AsyncCallback(AcceptSocketCallback);
+
+			_listener.BeginAcceptSocket(_acceptSocket, _listener);
+
+			Debug.Print("started server");
+			ServerConnectionStateChange(ConnectionState.Listening, "Started listening");
+
+		}
+
+		private void AcceptSocketCallback(IAsyncResult ar)
+		{
+			//if (_s != null)
+			//{
+			//    if (_s.Connected)
+			//    {
+			//        //We need to get rid of the other socket before accepting this one.
+			//        Restart("new incomming connection.");
+			//    }
+			//}
+
+			//Accept the connection and store a pointer to the connected socket in _s
+			TcpListener myListener = (TcpListener)ar.AsyncState;
 
-            //welcome message
-            SendPacket("welcome");
-            Debug.Print(_s.LocalEndPoint.AddressFamily.ToString());
+			_s = myListener.EndAcceptSocket(ar);
+			//myListener.Stop();
+			_s.SendTimeout = _sendTimeoutInterval;  //testing to disable, result is bad, make this line remain UNcommented, works at 250
 
-            ServerConnectionStateChange(ConnectionState.Connected, _s.LocalEndPoint.AddressFamily.ToString() + " has connected.");
+			_ns = new NetworkStream(_s);
 
+			Debug.Print(_s.RemoteEndPoint.AddressFamily.ToString() + " has connected");
 
+			//Start listening for data from the socket.
+			_nsr = new NetworkStreamReader(_ns, _endOfPacketChar);
+			_nsr.PacketReady += new NetworkStreamReader.PacketReadyEventHandler(_nsr_PacketReady);
+			_nsr.NeedToRestart += new NetworkStreamReader.NeedToRestartEventHandler(_nsr_NeedToRestart);
+			new Thread(_nsr.DoWork).Start();
 
-        }
+			//And start the thread for sending packets
+			_nss = new NetworkStreamSender(_ns, _endOfPacketChar);
+			_nss.ComFailure += new NetworkStreamSender.ComFailureEventHandler(_nss_ComFailure);
+			_nss.PacketSent += new NetworkStreamSender.PacketSentEventHandler(_nss_PacketSent);
+			new Thread(_nss.DoWork).Start();
 
-        private void _nss_PacketSent(string data)
-        {
-            ConnectionEvent(ConnectionEventType.PacketSent, data);
-            Debug.Print("Packet sent: " + data);
-        }
+			//Start the time out packet.  If the socket was not able to send this packet, the client has disconnected.
+			_heartbeatTimer = new System.Timers.Timer(_heartbeatInterval);
+			_heartbeatTimer.Elapsed += new ElapsedEventHandler(_timeout_Elapsed);
+			_heartbeatTimer.Start();
 
+			//welcome message
+			SendPacket("welcome");
+			Debug.Print(_s.LocalEndPoint.AddressFamily.ToString());
 
+			ServerConnectionStateChange(ConnectionState.Connected, _s.LocalEndPoint.AddressFamily.ToString() + " has connected.");
 
-        private void _nss_ComFailure()
-        {
-            Restart("Stopping server: NetworkStreamSend failure");
-        }
 
-        private void _nsr_NeedToRestart()
-        {
-            Restart("Stopping server: NetworkStreamRead failure");
-        }
 
-        public void SendPacket(string packet)
-        {
-            if (!_stopping && (_nss != null))
-                _nss.SendPacket(packet);
-        }
+		}
 
-        public void SendPackets(List<string> packets)
-        {
-            if (!_stopping && (_nss != null))
-                _nss.SendPackets(packets);
-        }
+		private void _nss_PacketSent(string data)
+		{
+			ConnectionEvent(ConnectionEventType.PacketSent, data);
+			Debug.Print("Packet sent: " + data);
+		}
 
-        private void _timeout_Elapsed(object sender, ElapsedEventArgs e)
-        {
-            //Send the time out packet.
-            SendPacket("heartbeat");
-        }
 
-        private void Restart(string reason)
-        {
-            Stop(reason);
 
-            //BeginSocketAccepting();
-            Start(_prevPort);
-        }
+		private void _nss_ComFailure()
+		{
+			Restart("Stopping server: NetworkStreamSend failure");
+		}
 
-        public void Stop(string reason)
-        {
-            if (!_stopping)
-            {
-                _stopping = true;
+		private void _nsr_NeedToRestart()
+		{
+			Restart("Stopping server: NetworkStreamRead failure");
+		}
 
-                //Kills the current connection, does not stop accepting new connections
-                Debug.Print("Stopping server: " + reason);
+		public void SendPacket(string packet)
+		{
+			if (!_stopping && (_nss != null))
+				_nss.SendPacket(packet);
+		}
 
+		public void SendPackets(List<string> packets)
+		{
+			if (!_stopping && (_nss != null))
+				_nss.SendPackets(packets);
+		}
 
-                if (_heartbeatTimer != null)
-                {
-                    _heartbeatTimer.Stop();
-                    _heartbeatTimer.Dispose();
-                }
+		private void _timeout_Elapsed(object sender, ElapsedEventArgs e)
+		{
+			//Send the time out packet.
+			SendPacket("heartbeat");
+		}
 
-                //_nss._packetsToSend.Clear();
+		private void Restart(string reason)
+		{
+			Stop(reason);
 
+			//BeginSocketAccepting();
+			Start(_prevPort);
+		}
 
+		public void Stop(string reason)
+		{
+			if (!_stopping)
+			{
+				_stopping = true;
 
-                //_ns.Dispose();
-                if (_nsr != null)
-                    _nsr.RequestStop();
-
-                if (_nss != null)
-                    _nss.RequestStop();
+				//Kills the current connection, does not stop accepting new connections
+				Debug.Print("Stopping server: " + reason);
 
-                if (_ns != null)
-                    _ns.Close();
-
-                try
-                {
-                    _s.Disconnect(false);
-                    _s.Close();
-                    _listener.Stop();
-                }
-                catch (Exception)
-                {
-
-                }
-
-                ServerConnectionStateChange(ConnectionState.Disconnected, reason);
-
-                Debug.Print("finished shutdown method");
-
-                _stopping = false;
-            }
-        }
-
-        private void _nsr_PacketReady()
-        {
-            string packet = _nsr._packetQueue.Dequeue();
-
-            Debug.Print("packet just received: " + packet);
-
-            //need to determine if we need to disconnect
-            if (packet == "disconnecting")
-                Restart("client has disconnected");
-            else
-                PacketReady(packet);
-        }
 
-        private class NetworkStreamSender
-        {
-            volatile NetworkStream _ns;
-            public volatile Queue<string> _packetsToSend;
-            private bool _requestStop;
-            private int _endOfPacketChar;
-
-            public delegate void ComFailureEventHandler();
-            public event ComFailureEventHandler ComFailure;
-
-            public delegate void PacketSentEventHandler(string data);
-            public event PacketSentEventHandler PacketSent;
-
-            public volatile EventWaitHandle _waitForPacketToSend;
-
-            private EventWaitHandle _requestStopWaitHandle;
-
-            public NetworkStreamSender(NetworkStream ns, int endOfPacketChar)
-            {
-                _ns = ns;
-                _endOfPacketChar = endOfPacketChar;
-                _packetsToSend = new Queue<string>();
-                _requestStop = false;
-
-                _waitForPacketToSend = new EventWaitHandle(true, EventResetMode.ManualReset);
-
-                _requestStopWaitHandle = new EventWaitHandle(true, EventResetMode.ManualReset);
-            }
-
-            public void SendPacket(string packet)
-            {
-                _packetsToSend.Enqueue(packet);
-                _waitForPacketToSend.Set();
-            }
-
-            public void SendPackets(List<string> packets)
-            {
-                for (int i = 0; i < packets.Count; ++i)
-                {
-                    _packetsToSend.Enqueue(packets[i]);
-                }
-
-                _waitForPacketToSend.Set();
-            }
-
-            public void DoWork()
-            {
-                while (!_requestStop)
-                {
-                    while ((_packetsToSend.Count > 0) && (!_requestStop))
-                    {
-                        
-
-                        string buff = "";
-                        try
-                        {
-                            buff = _packetsToSend.Dequeue();
-                            //Debug.Print("attempting to send: " + buff);
-                        }
-                        catch (System.InvalidOperationException ioe)
-                        {
-                            //do nothing, nothing in the buffer
-                        }
-
-                        try
-                        {
-                            if (buff != "")
-                            {
-                                _ns.Write(Encoding.ASCII.GetBytes(buff), 0, buff.Length);
-                                _ns.WriteByte((byte)_endOfPacketChar);
-                                _ns.Flush();
-                                PacketSent(buff);
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            //Something went wrong.  Just assume to reset the server.
-                            ComFailure();
-                            Debug.Print(e.Message);
-
-                        }
-
-                        //Done writing the packet, now write the end of packet character
-
-                    }
-
-                    _waitForPacketToSend.Reset();
-                    if (!_requestStop)
-                        _waitForPacketToSend.WaitOne();
-
-                }
-
-                //done
-
-                _requestStopWaitHandle.Set();
-
-            }
-
-            public void RequestStop()
-            {
-                if (!_requestStop)
-                {
-                    _requestStop = true;    //Only want to RequstStop() once
-                    
-                    _packetsToSend.Clear();
-                    _waitForPacketToSend.Set();
-
-                    //ProcessQueue();
-                    //_requestStopWaitHandle.Reset();
-                    _requestStopWaitHandle.WaitOne();
-                    Debug.Print("NSS RequestStop() completed.");
-
-                    //_requestStop = false;
-                }
-
-            }
-        }
-
-        private class NetworkStreamReader
-        {
-            volatile bool _shouldStop;
-            volatile NetworkStream _ns;
-            byte[] _buff;
-            string _strBuff;
-            int _endOfPacketChar;
-
-            public delegate void PacketReadyEventHandler();
-            public event PacketReadyEventHandler PacketReady;
-
-            public delegate void NeedToRestartEventHandler();
-            public event NeedToRestartEventHandler NeedToRestart;
-
-            public volatile Queue<string> _packetQueue;
-
-            private EventWaitHandle _requestStopWaitHandle;
-
-            public NetworkStreamReader(NetworkStream ns, int endOfPacketChar)
-            {
-                _shouldStop = false;
-                _ns = ns;
-                _strBuff = "";
-                _endOfPacketChar = endOfPacketChar;
-                _packetQueue = new Queue<string>();
-
-                _buff = new byte[1];
-
-                _requestStopWaitHandle = new EventWaitHandle(true, EventResetMode.ManualReset);
-            }
-
-            public void DoWork()
-            {
-                bool readSuccess = false;
-
-                while (!_shouldStop)
-                {
-                    //the loop
-
-                    try
-                    {
-                        //_ns.Read(_buff, 0, 1);
-                        _ns.Read(_buff, 0, 1);
-                        readSuccess = true;
-                    }
-                    catch (IOException)
-                    {
-                        //RequestStop();
-                        if (!_shouldStop)
-                            NeedToRestart();
-
-                        //break;
-
-                    }
-                    catch (System.ObjectDisposedException)
-                    {
-                        break;
-                    }
-
-                    if (readSuccess)
-                    {
-
-                        if (_buff[0] == _endOfPacketChar)
-                        {
-                            if (_strBuff.Length > 0)
-                            {
-                                _packetQueue.Enqueue(_strBuff);
-
-                                _strBuff = "";
-
-                                //Raise event that a packet is ready.
-                                PacketReady();
-                                //Debug.Print("raised event packet ready");
-                            }
-
-                        }
-                        else
-                        {
-                            _strBuff = _strBuff + (char)_buff[0];
-
-                        }
-
-                        readSuccess = false;
-                    }
-
-                }
-
-                //done
-                _requestStopWaitHandle.Set();
-            }
-
-            public void RequestStop()
-            {
-                if (!_shouldStop)
-                {
-
-                    _shouldStop = true;
-                    //_requestStopWaitHandle.Reset();
-                    _requestStopWaitHandle.WaitOne();
-                    Debug.Print("NSR RequestStop() completed.");
-                    //_shouldStop = false;
-                }
-
-
-            }
-        }
-
-        private string GetLocalIP()
-        {
-            IPHostEntry host;
-            string localIP = "?";
-            host = Dns.GetHostEntry(Dns.GetHostName());
-            foreach (IPAddress ip in host.AddressList)
-            {
-                if (ip.AddressFamily.ToString() == AddressFamily.InterNetwork.ToString())
-                {
-                    localIP = ip.ToString();
-                }
-            }
-            return localIP;
-        }
-    }
+				if (_heartbeatTimer != null)
+				{
+					_heartbeatTimer.Stop();
+					_heartbeatTimer.Dispose();
+				}
+
+				//_nss._packetsToSend.Clear();
+
+
+
+				//_ns.Dispose();
+				if (_nsr != null)
+					_nsr.RequestStop();
+
+				if (_nss != null)
+					_nss.RequestStop();
+
+				if (_ns != null)
+					_ns.Close();
+
+				try
+				{
+					_s.Disconnect(false);
+					_s.Close();
+					_listener.Stop();
+				}
+				catch (Exception)
+				{
+
+				}
+
+				ServerConnectionStateChange(ConnectionState.Disconnected, reason);
+
+				Debug.Print("finished shutdown method");
+
+				_stopping = false;
+			}
+		}
+
+		private void _nsr_PacketReady()
+		{
+			string packet = _nsr._packetQueue.Dequeue();
+
+			Debug.Print("packet just received: " + packet);
+
+			//need to determine if we need to disconnect
+			if (packet == "disconnecting")
+				Restart("client has disconnected");
+			else
+				PacketReady(packet);
+		}
+
+		private class NetworkStreamSender
+		{
+			volatile NetworkStream _ns;
+			public volatile Queue<string> _packetsToSend;
+			private bool _requestStop;
+			private int _endOfPacketChar;
+
+			public delegate void ComFailureEventHandler();
+			public event ComFailureEventHandler ComFailure;
+
+			public delegate void PacketSentEventHandler(string data);
+			public event PacketSentEventHandler PacketSent;
+
+			public volatile EventWaitHandle _waitForPacketToSend;
+
+			private EventWaitHandle _requestStopWaitHandle;
+
+			public NetworkStreamSender(NetworkStream ns, int endOfPacketChar)
+			{
+				_ns = ns;
+				_endOfPacketChar = endOfPacketChar;
+				_packetsToSend = new Queue<string>();
+				_requestStop = false;
+
+				_waitForPacketToSend = new EventWaitHandle(true, EventResetMode.ManualReset);
+
+				_requestStopWaitHandle = new EventWaitHandle(true, EventResetMode.ManualReset);
+			}
+
+			public void SendPacket(string packet)
+			{
+				_packetsToSend.Enqueue(packet);
+				_waitForPacketToSend.Set();
+			}
+
+			public void SendPackets(List<string> packets)
+			{
+				for (int i = 0; i < packets.Count; ++i)
+				{
+					_packetsToSend.Enqueue(packets[i]);
+				}
+
+				_waitForPacketToSend.Set();
+			}
+
+			public void DoWork()
+			{
+				while (!_requestStop)
+				{
+					while ((_packetsToSend.Count > 0) && (!_requestStop))
+					{
+
+
+						string buff = "";
+						try
+						{
+							buff = _packetsToSend.Dequeue();
+							//Debug.Print("attempting to send: " + buff);
+						}
+						catch (System.InvalidOperationException ioe)
+						{
+							//do nothing, nothing in the buffer
+						}
+
+						try
+						{
+							if (buff != "")
+							{
+								_ns.Write(Encoding.ASCII.GetBytes(buff), 0, buff.Length);
+								_ns.WriteByte((byte)_endOfPacketChar);
+								_ns.Flush();
+								PacketSent(buff);
+							}
+						}
+						catch (Exception e)
+						{
+							//Something went wrong.  Just assume to reset the server.
+							ComFailure();
+							Debug.Print(e.Message);
+
+						}
+
+						//Done writing the packet, now write the end of packet character
+
+					}
+
+					_waitForPacketToSend.Reset();
+					if (!_requestStop)
+						_waitForPacketToSend.WaitOne();
+
+				}
+
+				//done
+
+				_requestStopWaitHandle.Set();
+
+			}
+
+			public void RequestStop()
+			{
+				if (!_requestStop)
+				{
+					_requestStop = true;    //Only want to RequstStop() once
+
+					_packetsToSend.Clear();
+					_waitForPacketToSend.Set();
+
+					//ProcessQueue();
+					//_requestStopWaitHandle.Reset();
+					_requestStopWaitHandle.WaitOne();
+					Debug.Print("NSS RequestStop() completed.");
+
+					//_requestStop = false;
+				}
+
+			}
+		}
+
+		private class NetworkStreamReader
+		{
+			volatile bool _shouldStop;
+			volatile NetworkStream _ns;
+			byte[] _buff;
+			string _strBuff;
+			int _endOfPacketChar;
+
+			public delegate void PacketReadyEventHandler();
+			public event PacketReadyEventHandler PacketReady;
+
+			public delegate void NeedToRestartEventHandler();
+			public event NeedToRestartEventHandler NeedToRestart;
+
+			public volatile Queue<string> _packetQueue;
+
+			private EventWaitHandle _requestStopWaitHandle;
+
+			public NetworkStreamReader(NetworkStream ns, int endOfPacketChar)
+			{
+				_shouldStop = false;
+				_ns = ns;
+				_strBuff = "";
+				_endOfPacketChar = endOfPacketChar;
+				_packetQueue = new Queue<string>();
+
+				_buff = new byte[1];
+
+				_requestStopWaitHandle = new EventWaitHandle(true, EventResetMode.ManualReset);
+			}
+
+			public void DoWork()
+			{
+				bool readSuccess = false;
+
+				while (!_shouldStop)
+				{
+					//the loop
+
+					try
+					{
+						//_ns.Read(_buff, 0, 1);
+						_ns.Read(_buff, 0, 1);
+						readSuccess = true;
+					}
+					catch (IOException)
+					{
+						//RequestStop();
+						if (!_shouldStop)
+							NeedToRestart();
+
+						//break;
+
+					}
+					catch (System.ObjectDisposedException)
+					{
+						break;
+					}
+
+					if (readSuccess)
+					{
+
+						if (_buff[0] == _endOfPacketChar)
+						{
+							if (_strBuff.Length > 0)
+							{
+								_packetQueue.Enqueue(_strBuff);
+
+								_strBuff = "";
+
+								//Raise event that a packet is ready.
+								PacketReady();
+								//Debug.Print("raised event packet ready");
+							}
+
+						}
+						else
+						{
+							_strBuff = _strBuff + (char)_buff[0];
+
+						}
+
+						readSuccess = false;
+					}
+
+				}
+
+				//done
+				_requestStopWaitHandle.Set();
+			}
+
+			public void RequestStop()
+			{
+				if (!_shouldStop)
+				{
+
+					_shouldStop = true;
+					//_requestStopWaitHandle.Reset();
+					_requestStopWaitHandle.WaitOne();
+					Debug.Print("NSR RequestStop() completed.");
+					//_shouldStop = false;
+				}
+
+
+			}
+		}
+
+		private string GetLocalIP()
+		{
+			IPHostEntry host;
+			string localIP = "?";
+			host = Dns.GetHostEntry(Dns.GetHostName());
+			foreach (IPAddress ip in host.AddressList)
+			{
+				if (ip.AddressFamily.ToString() == AddressFamily.InterNetwork.ToString())
+				{
+					localIP = ip.ToString();
+				}
+			}
+			return localIP;
+		}
+	}
+}
